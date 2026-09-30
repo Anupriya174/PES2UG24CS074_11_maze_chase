@@ -20,10 +20,29 @@ class GameEngine:
     def reset(self):
         self.walls = generate_maze(COLS, ROWS)
         self.player = Player(0, 0)
-        self.enemy = Enemy(ROWS-1, COLS-1)
+        self.enemies = [
+            Enemy(ROWS - 1, COLS - 1),  # bottom-right
+            Enemy(0, COLS - 1),         # top-right
+            Enemy(ROWS - 1, 0)          # bottom-left
+        ]
+
+        self.start_time = pygame.time.get_ticks()
+        self.speed_tier = 1
+
         self.exit_rect = pygame.Rect((COLS//2)*CELL+5, (ROWS//2)*CELL+5, CELL-10, CELL-10)
+
+        # Task 3: power pellet
+        self.power_pellet_rect = pygame.Rect(
+            (COLS // 2) * CELL + CELL // 2 - 7,
+            1 * CELL + CELL // 2 - 7,
+            14,
+            14
+            )
+        self.pellet_collected = False
+
         self.caught = False
         self.won = False
+        self.score = 0
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -33,11 +52,35 @@ class GameEngine:
 
     def update(self):
         if self.caught or self.won: return
+        self.score += 1
         keys = pygame.key.get_pressed()
         self.player.move(keys, self.walls, ROWS, COLS)
-        self.enemy.update(self.walls, self.player, ROWS, COLS)
-        if self.player.rect.colliderect(self.enemy.rect):
-            self.caught = True
+
+        elapsed = pygame.time.get_ticks() - self.start_time
+        new_tier = elapsed // 15000 + 1
+
+        if new_tier != self.speed_tier:
+            self.speed_tier = new_tier
+            for enemy in self.enemies:
+                enemy.move_interval = max(5, 20 - (self.speed_tier - 1) * 2)
+
+        # Task 3: collect power pellet
+        if (
+            not self.pellet_collected
+            and self.player.rect.colliderect(self.power_pellet_rect)
+        ):
+            self.pellet_collected = True
+
+            for enemy in self.enemies:
+                enemy.frozen = True
+                enemy.freeze_timer = 300
+
+        for enemy in self.enemies:
+            enemy.update(self.walls, self.player, ROWS, COLS)
+        for enemy in self.enemies:
+            if self.player.rect.colliderect(enemy.rect):
+                self.caught = True
+                break
         if self.player.rect.colliderect(self.exit_rect):
             self.won = True
 
@@ -55,16 +98,39 @@ class GameEngine:
         pygame.draw.rect(self.screen,(80,200,80),self.exit_rect,border_radius=4)
         lbl=self.font.render("EXIT",True,(20,80,20))
         self.screen.blit(lbl,(self.exit_rect.x+2,self.exit_rect.y+6))
+
+        # Task 3: draw power pellet
+        if not self.pellet_collected:
+            pygame.draw.circle(
+                self.screen,
+                (255, 220, 0),
+                self.power_pellet_rect.center,
+                7
+            )
+
         self.player.draw(self.screen)
-        self.enemy.draw(self.screen)
+
+        for enemy in self.enemies:
+            enemy.draw(self.screen)
         hud=pygame.Rect(0,ROWS*CELL,WIDTH,50)
         pygame.draw.rect(self.screen,(30,30,50),hud)
-        info=self.font.render("Reach EXIT before the enemy catches you!  R=Restart",True,(200,200,200))
+        info = self.font.render(
+            f"Reach EXIT!  Speed Tier:{self.speed_tier}  Survived:{self.score // 60}s  R ",
+            True,
+            (200,200,200)
+        )
         self.screen.blit(info,(8,ROWS*CELL+14))
         if self.caught:
-            self._overlay("CAUGHT!", (220,60,60))
+            self._overlay(
+                f"CAUGHT!  Survived: {self.score // 60}s",
+                (220,60,60)
+            )
+
         if self.won:
-            self._overlay("ESCAPED!", (80,220,80))
+            self._overlay(
+                f"ESCAPED!  Survived: {self.score // 60}s",
+                (80,220,80)
+            )   
         pygame.display.flip()
 
     def _overlay(self, text, color):
